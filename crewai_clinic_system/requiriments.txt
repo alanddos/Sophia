@@ -1,0 +1,7 @@
+crewai
+crewai-tools
+python-dotenv
+langchain-openai
+Flask
+celery
+redis
