@@ -1,5 +1,8 @@
+# crew_config/tasks.py - Conteúdo ATUALIZADO
+
 from crewai import Task
-from crewai_tools import FileTools
+# ATUALIZADO: Importe as ferramentas de arquivo específicas
+from crewai_tools import FileReadTool, FileWriterTool, DirectoryReadTool
 import os
 
 # Carregar os caminhos das especificações do ambiente
@@ -9,26 +12,41 @@ SYSTEM_FLOW_SPEC_PATH = os.getenv("SYSTEM_FLOW_SPEC_PATH")
 DER_SPEC_PATH = os.getenv("DER_SPEC_PATH")
 
 # Ferramentas para manipulação de arquivos
-file_tools_project_status = FileTools(
+# AGORA USAMOS FERRAMENTAS ESPECÍFICAS DE LEITURA E ESCRITA
+# Note que estamos criando instâncias separadas para leitura e escrita do mesmo arquivo
+file_read_project_status = FileReadTool(
     file_path=PROJECT_STATUS_PATH,
-    description="Permite ler e escrever no arquivo JSON de status do projeto. "
-                "Use para atualizar a lista de itens concluídos no projeto e verificar o status atual."
+    description="Permite ler o conteúdo do arquivo JSON de status do projeto. "
+                "Use para verificar o status atual."
+)
+file_write_project_status = FileWriterTool(
+    file_path=PROJECT_STATUS_PATH,
+    description="Permite escrever no arquivo JSON de status do projeto. "
+                "Use para atualizar a lista de itens concluídos no projeto."
 )
 
-file_tools_tech_roadmap = FileTools(
+file_read_tech_roadmap = FileReadTool(
     file_path=TECHNOLOGIES_AND_ROADMAP_SPEC_PATH,
     description="Permite ler o arquivo Markdown que contém as tecnologias propostas e o roteiro de desenvolvimento do projeto."
 )
 
-file_tools_system_flow = FileTools(
+file_read_system_flow = FileReadTool(
     file_path=SYSTEM_FLOW_SPEC_PATH,
     description="Permite ler o arquivo Markdown que descreve o fluxo geral do sistema."
 )
 
-file_tools_der_spec = FileTools(
+file_read_der_spec = FileReadTool(
     file_path=DER_SPEC_PATH,
     description="Permite ler o arquivo Markdown que contém a especificação do Diagrama Entidade-Relacionamento (DER)."
 )
+
+# Ferramenta opcional para leitura de diretórios, se necessário por algum agente
+# Certifique-se de que o caminho 'path' está correto para o uso pretendido
+directory_read_tool = DirectoryReadTool(
+    path='./', # Este é o diretório raiz do projeto. Ajuste se precisar ler de outra pasta.
+    description="Permite ler o conteúdo de diretórios. Use com cautela e apenas quando necessário."
+)
+
 
 # --- Definição das Tarefas ---
 
@@ -45,7 +63,8 @@ orchestrate_development_plan_task = Task(
         "Um plano de desenvolvimento detalhado, articulado em etapas e sub-tarefas, "
         "levando em conta o estado atual e o que o usuário solicitou."
     ),
-    tools=[file_tools_tech_roadmap, file_tools_system_flow, file_tools_der_spec, file_tools_project_status],
+    # ATUALIZADO: Usando as ferramentas de leitura específicas
+    tools=[file_read_tech_roadmap, file_read_system_flow, file_read_der_spec, file_read_project_status],
     agent=None,  # Será atribuído na Crew
 )
 
@@ -57,7 +76,8 @@ analyze_requirements_der_task = Task(
         "Garanta que a análise esteja alinhada com as necessidades do projeto e com o que já foi feito: {completed_tasks_context}."
     ),
     expected_output="Um resumo detalhado dos requisitos funcionais e não-funcionais, e uma análise do DER.",
-    tools=[file_tools_system_flow, file_tools_der_spec, file_tools_project_status],
+    # ATUALIZADO: Usando as ferramentas de leitura específicas
+    tools=[file_read_system_flow, file_read_der_spec, file_read_project_status],
     agent=None,
 )
 
@@ -69,7 +89,8 @@ design_architecture_db_schema_task = Task(
         "Crie também a documentação técnica inicial para a arquitetura e o esquema do banco de dados."
     ),
     expected_output="Documentos de design de arquitetura e esquema de banco de dados, detalhando a estrutura do sistema.",
-    tools=[file_tools_tech_roadmap, file_tools_der_spec, file_tools_project_status],
+    # ATUALIZADO: Usando as ferramentas de leitura específicas
+    tools=[file_read_tech_roadmap, file_read_der_spec, file_read_project_status],
     agent=None,
 )
 
@@ -83,6 +104,7 @@ develop_backend_auth_skeleton_task = Task(
     ),
     expected_output="Código Python funcional para o esqueleto do microsserviço de autenticação.",
     agent=None,
+    # Não há ferramentas de arquivo para esta tarefa específica, pois o foco é a geração de código pelo LLM
 )
 
 develop_frontend_login_dashboard_skeleton_task = Task(
@@ -94,6 +116,7 @@ develop_frontend_login_dashboard_skeleton_task = Task(
     ),
     expected_output="Código React/Next.js funcional para o esqueleto das interfaces de login e dashboard.",
     agent=None,
+    # Não há ferramentas de arquivo para esta tarefa específica
 )
 
 develop_backend_chat_skeleton_task = Task(
@@ -105,6 +128,7 @@ develop_backend_chat_skeleton_task = Task(
     ),
     expected_output="Código Python funcional para o esqueleto do microsserviço de chat.",
     agent=None,
+    # Não há ferramentas de arquivo para esta tarefa específica
 )
 
 develop_frontend_chat_task = Task(
@@ -116,6 +140,7 @@ develop_frontend_chat_task = Task(
     ),
     expected_output="Código React/Next.js funcional para a interface de chat.",
     agent=None,
+    # Não há ferramentas de arquivo para esta tarefa específica
 )
 
 create_test_plans_task = Task(
@@ -155,6 +180,7 @@ update_project_status_task = Task(
         "Uma lista JSON de strings contendo os nomes EXATOS das tarefas ou fases do roteiro que foram "
         "concluídas, ou novos artefatos/documentos gerados. EX: ['Fase 1: Descoberta e Design', 'DER Analisado']"
     ),
-    tools=[file_tools_project_status, file_tools_tech_roadmap],
+    # ATUALIZADO: Usando as ferramentas de leitura e escrita específicas
+    tools=[file_read_project_status, file_write_project_status, file_read_tech_roadmap],
     agent=None,
 )

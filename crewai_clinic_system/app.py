@@ -1,10 +1,11 @@
 import os
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from celery import Celery
 from dotenv import load_dotenv
 import re
 import time
+import crewai_tools
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -13,14 +14,26 @@ load_dotenv()
 from crew_orchestrator import run_crew_process, get_roadmap_phases_from_file
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your_secret_key_here') # Chave secreta para flash messages
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your_secret_key_here')
 
 # Configuração do Celery
 app.config['CELERY_BROKER_URL'] = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 app.config['CELERY_RESULT_BACKEND'] = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
+# Dicionário de configuração dedicado para o Celery
+celery_config = {
+    'broker_url': app.config['CELERY_BROKER_URL'],
+    'result_backend': app.config['CELERY_RESULT_BACKEND'],
+    'task_serializer': 'json',
+    'result_serializer': 'json',
+    'accept_content': ['json'],
+    'timezone': 'America/Sao_Paulo',
+    'enable_utc': False,
+    'imports': ('crew_orchestrator', ),
+}
+
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
-celery.conf.update(app.config)
+celery.conf.update(celery_config)
 
 # Caminhos para arquivos (lidos do .env)
 PROJECT_STATUS_PATH = os.getenv("PROJECT_STATUS_PATH")
@@ -85,7 +98,6 @@ def save_last_run_results(results: dict):
     except Exception as e:
         print(f"Erro ao salvar os resultados da última execução: {e}")
 
-
 @celery.task
 def run_crew_task(user_input: str, current_completed_tasks: list):
     """
@@ -112,11 +124,42 @@ def run_crew_task(user_input: str, current_completed_tasks: list):
     print(f"Tarefa CrewAI concluída. Resultados salvos.")
     return results
 
+# Novo endpoint para verificar o status da tarefa
+@app.route('/status/<task_id>')
+def task_status(task_id):
+    task = run_crew_task.AsyncResult(task_id)
+
+    if task.state == 'PENDING':
+        response = {
+            'state': task.state,
+            'status': 'Aguardando na fila...',
+            'result': None
+        }
+    elif task.state != 'FAILURE':
+        # Você pode personalizar as mensagens de status aqui
+        response = {
+            'state': task.state,
+            'status': task.info.get('status', 'Executando...'), # Exemplo de como obter status
+            'result': task.info.get('result', None)
+        }
+    else:
+        # Em caso de falha, recupera a informação do erro
+        response = {
+            'state': task.state,
+            'status': str(task.info),
+            'result': None
+        }
+    return jsonify(response)
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     completed_tasks = load_project_status()
     error_roadmap, roadmap_phases = get_roadmap_phases_from_file()
+    
+    # Correção: Garante que roadmap_phases é um dicionário, mesmo que a função retorne uma lista vazia ou um erro
+    if not isinstance(roadmap_phases, dict):
+        roadmap_phases = {}
     
     # Carrega os resultados da última execução do arquivo
     last_run_results = load_last_run_results()
@@ -131,15 +174,13 @@ def index():
     if request.method == 'POST':
         user_input = request.form['user_input']
         
-        # Dispara a tarefa Celery em vez de executar diretamente
-        # Passa uma cópia das tarefas completas para evitar problemas de referência
+        # Dispara a tarefa Celery e obtém o ID
         task = run_crew_task.delay(user_input, list(completed_tasks))
         
-        flash(f"Processo CrewAI iniciado em segundo plano (Task ID: {task.id}). "
-              f"Os resultados aparecerão aqui assim que a tarefa for concluída (pode levar alguns minutos).", 'info')
+        flash(f"Processo CrewAI iniciado em segundo plano.", 'info')
         
-        # Redireciona para evitar reenvio de formulário e para limpar a mensagem flash
-        return redirect(url_for('index'))
+        # Redireciona com o task_id na URL para que o JS possa monitorar
+        return redirect(url_for('index', task_id=task.id))
 
     return render_template(
         'index.html',
@@ -148,14 +189,11 @@ def index():
         planning_output=planning_output,
         development_output=development_output,
         error_message=error_message,
-        # Adiciona uma variável para indicar se uma tarefa está em andamento (opcional, requer mais lógica para verificar status em tempo real)
-        # current_task_id=request.args.get('task_id') # Se você quiser passar o ID da tarefa na URL para monitoramento
     )
 
 
 if __name__ == '__main__':
     # Cria as pastas e arquivos de especificação de exemplo se não existirem
-    # (Para facilitar o primeiro uso, mas o usuário deve preenchê-los)
     if not os.path.exists('templates'):
         os.makedirs('templates')
     

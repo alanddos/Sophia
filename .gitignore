@@ -1,1 +1,5 @@
-crewai_clinic_system/venv/
+venv/
+crewai_clinic_system/.env
+crewai_clinic_system/__pycache__/
+
+        
